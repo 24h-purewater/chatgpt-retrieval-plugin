@@ -1,11 +1,16 @@
 import os
+from models.models import Query
+from services.openai import get_chat_completion
 from typing import Optional
+
 import uvicorn
 from fastapi import FastAPI, File, Form, HTTPException, Depends, Body, UploadFile
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from fastapi.staticfiles import StaticFiles
-
+import pinecone
 from models.api import (
+    ChatRequest,
+    ChatRequest,
     DeleteRequest,
     DeleteResponse,
     QueryRequest,
@@ -15,8 +20,17 @@ from models.api import (
 )
 from datastore.factory import get_datastore
 from services.file import get_document_from_file
-
+from dotenv import load_dotenv
+import openai
+import traceback
 from models.models import DocumentMetadata, Source
+
+
+load_dotenv()
+openai_api_base = os.environ.get("OPENAI_API_BASE")
+if openai_api_base is not None:
+    openai.api_base = openai_api_base
+
 
 bearer_scheme = HTTPBearer()
 BEARER_TOKEN = os.environ.get("BEARER_TOKEN")
@@ -24,6 +38,8 @@ assert BEARER_TOKEN is not None
 
 
 def validate_token(credentials: HTTPAuthorizationCredentials = Depends(bearer_scheme)):
+    print(credentials)
+    print(credentials)
     if credentials.scheme != "Bearer" or credentials.credentials != BEARER_TOKEN:
         raise HTTPException(status_code=401, detail="Invalid or missing token")
     return credentials
@@ -97,6 +113,61 @@ async def query_main(
             request.queries,
         )
         return QueryResponse(results=results)
+    except Exception as e:
+        print("Error:", e)
+        traceback.print_exc()
+        raise HTTPException(status_code=500, detail="Internal Service Error")
+
+
+@app.post("/chat")
+async def chat(requests: ChatRequest):
+    if not (requests.content):
+        raise HTTPException(
+            status_code=400,
+            detail="One of content is required",
+        )
+    try:
+
+        query = Query(query=requests.content, filter=None, top_k=3)
+        queries = [query]
+
+        results = await datastore.query(
+            queries
+        )
+
+        # get prompts from query result
+        context = '\n'.join([r.text for r in results[0].results])
+        context = context.replace('\n', ' ----------------------------- ')
+        prompt = f'''
+             You are an AI assistant providing helpful advice. You are given the following extracted parts of a long document and a question. Provide a conversational answer based on the context provided.
+If you can't find the answer in the context below, just say "Hmm, I'm not sure." Don't try to make up an answer.
+You will reply to me in the same language as the language used in user's question
+If the question is not related to the context, politely respond that you are tuned to only answer questions that are related to the context.
+        =========
+        {context}
+        =========
+              '''
+        messages = [
+            {"role": "system", "content": prompt},
+            {"role": "user", "content": requests.content},
+        ]
+        print(messages)
+        completion = get_chat_completion(
+            messages,
+        )
+        return completion
+    except Exception as e:
+        print("Error:", e)
+        traceback.print_exc()
+        raise HTTPException(status_code=500, detail="Internal Service Error")
+
+
+@app.get("/list-index")
+async def list_index():
+
+    try:
+        indexes = pinecone.list_indexes()
+        return indexes
     except Exception as e:
         print("Error:", e)
         raise HTTPException(status_code=500, detail="Internal Service Error")

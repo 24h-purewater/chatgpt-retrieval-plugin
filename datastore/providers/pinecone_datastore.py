@@ -1,3 +1,4 @@
+import json
 import os
 from typing import Any, Dict, List, Optional
 import pinecone
@@ -20,15 +21,18 @@ from services.date import to_unix_timestamp
 PINECONE_API_KEY = os.environ.get("PINECONE_API_KEY")
 PINECONE_ENVIRONMENT = os.environ.get("PINECONE_ENVIRONMENT")
 PINECONE_INDEX = os.environ.get("PINECONE_INDEX")
+PINECONE_PROJECT = os.environ.get("PINECONE_PROJECT")
 assert PINECONE_API_KEY is not None
 assert PINECONE_ENVIRONMENT is not None
 assert PINECONE_INDEX is not None
+assert PINECONE_PROJECT is not None
 
 # Initialize Pinecone with the API key and environment
-pinecone.init(api_key=PINECONE_API_KEY, environment=PINECONE_ENVIRONMENT)
+pinecone.init(api_key=PINECONE_API_KEY, environment=PINECONE_ENVIRONMENT, project_name=PINECONE_PROJECT)
 
 # Set the batch size for upserting vectors to Pinecone
 UPSERT_BATCH_SIZE = 100
+namespace = 'first_namespace'
 
 
 class PineconeDataStore(DataStore):
@@ -98,7 +102,7 @@ class PineconeDataStore(DataStore):
         for batch in batches:
             try:
                 print(f"Upserting batch of size {len(batch)}")
-                self.index.upsert(vectors=batch)
+                self.index.upsert(vectors=batch, namespace=namespace)
                 print(f"Upserted batch successfully")
             except Exception as e:
                 print(f"Error upserting batch: {e}")
@@ -125,7 +129,7 @@ class PineconeDataStore(DataStore):
             try:
                 # Query the index with the query embedding, filter, and top_k
                 query_response = self.index.query(
-                    # namespace=namespace,
+                    namespace=namespace,
                     top_k=query.top_k,
                     vector=query.embedding,
                     filter=pinecone_filter,
